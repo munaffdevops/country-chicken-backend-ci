@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -7,49 +8,38 @@ pipeline {
     }
 
     environment {
-        APP_NAME         = 'country-chicken-backend'
-
-        NEXUS_MAVEN_URL  = '3.89.152.50:8081'
-        NEXUS_DOCKER_URL = '3.89.152.50:8082'
-
-        MAVEN_REPO       = 'maven-releases'
-        DOCKER_REPO      = 'docker-releases'
-
-        GROUP_ID         = 'com.countrychicken'
-        VERSION          = ''
-        JAR_NAME         = ''
+        APP_NAME        = 'country-chicken-backend'
+        NEXUS_MAVEN_URL = 'local-nexus:8081'
+        NEXUS_DOCKER_URL = 'localhost:8082'
+        MAVEN_REPO      = 'maven-releases'
+        DOCKER_REPO     = 'docker-releases'
+        GROUP_ID        = 'com.countrychicken'
     }
 
     stages {
-
         stage('Checkout') {
             steps {
-                git branch: 'test',
-                    url: 'https://github.com/srikanth78933/country-chicken-backend.git'
+                git branch: 'main',
+                    url: 'https://github.com/munaffdevops/country-chicken-backend-ci.git'
             }
         }
 
-        stage('Set Version') {
+        stage('Read Version') {
             steps {
                 script {
-                    VERSION = sh(
-                        script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
+                    env.VERSION = sh(
+                        script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout',
                         returnStdout: true
                     ).trim()
-
-                    if (!VERSION) {
-                        error "❌ Version not found from pom.xml"
-                    }
-
-                    JAR_NAME = "${APP_NAME}-${VERSION}.jar"
-                    echo "✅ Version: ${VERSION}"
+                    env.JAR_NAME = "${env.APP_NAME}-${env.VERSION}.jar"
+                    echo "Project version: ${env.VERSION}"
                 }
             }
         }
 
-        stage('Build JAR') {
+        stage('Build and Test') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean verify'
             }
         }
 
@@ -58,19 +48,18 @@ pipeline {
                 nexusArtifactUploader(
                     nexusVersion: 'nexus3',
                     protocol: 'http',
-                    nexusUrl: "${NEXUS_MAVEN_URL}",
-                    groupId: "${GROUP_ID}",
-                    version: "${VERSION}",
-                    repository: "${MAVEN_REPO}",
+                    nexusUrl: 'local-nexus:8081',
+                    groupId: "${env.GROUP_ID}",
+                    artifactId: "${env.APP_NAME}",
+                    version: "${env.VERSION}",
+                    repository: "${env.MAVEN_REPO}",
                     credentialsId: 'nexus-credentials',
-                    artifacts: [
-                        [
-                            artifactId: "${APP_NAME}",
-                            classifier: '',
-                            file: "target/${JAR_NAME}",
-                            type: 'jar'
-                        ]
-                    ]
+                    artifacts: [[
+                        artifactId: "${env.APP_NAME}",
+                        classifier: '',
+                        file: "target/${env.JAR_NAME}",
+                        type: 'jar'
+                    ]]
                 )
             }
         }
@@ -78,9 +67,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh """
-                docker build \
-                  -t ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:${VERSION} \
-                  -t ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:latest .
+                    docker build -t ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:${VERSION} .
                 """
             }
         }
@@ -88,20 +75,15 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'docker-nexus-credentials',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
+                    credentialsId: 'nexus-credentials',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
                 )]) {
                     sh """
-
-                    echo "$DOCKER_PASS" | docker login ${NEXUS_DOCKER_URL} -u "$DOCKER_USER" --password-stdin
-
-                    docker push ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:${VERSION}
-                    docker push ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:latest
-
-                    docker logout ${NEXUS_DOCKER_URL}
+                        echo "\$NEXUS_PASS" | docker login ${NEXUS_DOCKER_URL} -u "\$NEXUS_USER" --password-stdin
+                        docker push ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:${VERSION}
+                        docker logout ${NEXUS_DOCKER_URL}
                     """
-
                 }
             }
         }
@@ -109,14 +91,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Build & Push Successful"
+            echo 'Build and publish successful.'
         }
         failure {
-            echo "❌ Build Failed"
-        }
-        always {
-            sh 'docker system prune -f'
-            cleanWs()
+            echo 'Build failed. Check the stage logs.'
         }
     }
 }
