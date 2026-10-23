@@ -1,4 +1,4 @@
-
+```groovy
 pipeline {
     agent any
 
@@ -8,12 +8,12 @@ pipeline {
     }
 
     environment {
-        APP_NAME        = 'country-chicken-backend'
-        NEXUS_MAVEN_URL = 'local-nexus:8081'
+        APP_NAME         = 'country-chicken-backend'
+        NEXUS_MAVEN_URL  = 'local-nexus:8081'
         NEXUS_DOCKER_URL = 'localhost:8082'
-        MAVEN_REPO      = 'maven-releases'
-        DOCKER_REPO     = 'docker-releases'
-        GROUP_ID        = 'com.countrychicken'
+        MAVEN_REPO       = 'maven-releases'
+        DOCKER_REPO      = 'docker-releases'
+        GROUP_ID         = 'com.countrychicken'
     }
 
     stages {
@@ -31,7 +31,9 @@ pipeline {
                         script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout',
                         returnStdout: true
                     ).trim()
+
                     env.JAR_NAME = "${env.APP_NAME}-${env.VERSION}.jar"
+
                     echo "Project version: ${env.VERSION}"
                 }
             }
@@ -50,7 +52,6 @@ pipeline {
                     protocol: 'http',
                     nexusUrl: 'local-nexus:8081',
                     groupId: "${env.GROUP_ID}",
-                    artifactId: "${env.APP_NAME}",
                     version: "${env.VERSION}",
                     repository: "${env.MAVEN_REPO}",
                     credentialsId: 'nexus-credentials',
@@ -80,8 +81,11 @@ pipeline {
                     passwordVariable: 'NEXUS_PASS'
                 )]) {
                     sh """
-                        echo "\$NEXUS_PASS" | docker login ${NEXUS_DOCKER_URL} -u "\$NEXUS_USER" --password-stdin
+                        echo "\$NEXUS_PASS" | docker login ${NEXUS_DOCKER_URL} \
+                            -u "\$NEXUS_USER" --password-stdin
+
                         docker push ${NEXUS_DOCKER_URL}/${DOCKER_REPO}/${APP_NAME}:${VERSION}
+
                         docker logout ${NEXUS_DOCKER_URL}
                     """
                 }
@@ -98,3 +102,4 @@ pipeline {
         }
     }
 }
+```
